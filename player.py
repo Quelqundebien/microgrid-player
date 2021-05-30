@@ -8,7 +8,7 @@ Created on Mon May 10 09:55:53 2021
 
 #import sys
 import os
-#import pulp
+import pulp
 import numpy as np
 from numpy import genfromtxt
 import pandas as pd
@@ -16,7 +16,7 @@ import pandas as pd
 
 df = pd.read_csv(os.path.join(os.getcwd(),"pv_prod_scenarios.csv"), sep = ";", decimal = ".")
 #prices = np.random.rand(48)
-
+nivbat = np.zeros(48)
 class Player:
 
     def __init__(self):
@@ -45,41 +45,63 @@ class Player:
                 self.data = futurdata
             else:
                 self.data = predata
+        print("data = ",self.data)
             
     def set_scenario_data(self,lpv):
         self.data=np.zeros(self.horizon)
         sc_init = np.array(lpv[(lpv["day"]==self.day) & (lpv["region"]==self.region)])
         for i in range(0,int(self.horizon/2)):
-            self.data[2*i]=sc_init[i,3]
-            self.data[2*i+1]=sc_init[i,3]
+            self.data[2*i]=sc_init[i,3]*self.size/1000
+            self.data[2*i+1]=sc_init[i,3]*self.size/1000
 
     def set_prices(self, prices):
         self.prices = prices
 
     def compute_all_load(self):
         load = np.zeros(self.horizon)
-        for time in range(self.horizon):
-            load[time] = self.compute_load(time)
+        pb_name = "decision"
+        lp = pulp.LpProblem(pb_name + ".lp", pulp.LpMinimize)
+        lp.setSolver()
+        lbat_c = {}
+        lbat_d = {}
+        lbat = {}
+        batterie = {}
+        for t in range(self.horizon):
+            #lbat[t] = {}
+            #batterie[t] = {}
+            #création des variablse
+            var_name = "batterie_" + str(t)
+            batterie[t] = pulp.LpVariable(var_name,0.0,self.C)
+            var_name = "lbat_c_" + str(t)
+            lbat_c[t] = pulp.LpVariable(var_name,0,self.pimax)
+            var_name = "lbat_d_" + str(t)
+            lbat_d[t] = pulp.LpVariable(var_name,0,self.pimax)
+        #Les contraintes
+        deltat = 24/self.horizon
+        lp += batterie[0] == 0,"batterie_initiale"
+        for t in range(self.horizon):
+            lp += lbat_c[t] <= self.data[t],"charge_"+str(t)
+            lp += lbat_d[t] <= self.data[t],"decharge_"+str(t)
+        for t in range(1,self.horizon):
+            lp += batterie[t] <= batterie[t-1] + lbat_c[t]*self.rhoc*deltat - deltat*lbat_d[t]/self.rhod,"batterie"+str(t)
+        lp.setObjective(pulp.lpSum(((lbat_c[t]-lbat_d[t]-self.data[t])*self.prices[t])*deltat for t in range(self.horizon)))
+        lp.solve()
+        #model = Model(lp,lbat)
+        #solve(model, pb_name)
+        #results = getResultsModel(pb,model,pb_name)
+        #printResults(pb, model, pb_name,[],results)
+        for t in range(self.horizon):
+            lbat[t] = lbat_c[t] - lbat_d[t]
+        for t in range(self.horizon):
+            load[t] = pulp.value(lbat_c[t])- pulp.value(lbat_d[t])-self.data[t]
+            self.bill += load[t]*self.prices[t]*deltat
+        #self.bill = value(lp.objective)
+        for i in range(48):
+            nivbat[i] = pulp.value(batterie[i])
         return load
 
     def take_decision(self, time):
-        prixmoy = sum(self.prices)/len(self.prices)
-        prix = self.prices[time]
-        prod = self.data
-        lbat = 0
-        if time < 3/4*(self.horizon):
-            if prix < prixmoy:
-                lbat = min(self.size*prod[time],self.pimax,(self.C-self.battery)/0.95)
-                self.battery += lbat*self.rhoc
-                self.battery = min(self.C,self.battery)
-                if prix > prixmoy:
-                    lbat = (-1)*min(self.pimax,self.battery)
-                    self.battery += lbat/self.rhod
-        else:
-            lbat = (-1)*min(self.pimax,self.battery)
-            self.battery += lbat/self.rhod
-        load = (-1)*(self.size*prod[time] - lbat)/1000
-        self.bill += load * self.prices[time]
+        load = 0
         return load
 
     def compute_load(self, time):
@@ -91,17 +113,21 @@ class Player:
 		# reset all observed data
         pass
 
-
+import matplotlib.pyplot as plt
 def run():
     player = Player()
-    prices= 4 + 4*np.random.rand(48) 
+    prices= [4 - abs(t-24)/8 for t in range(48)]
     player.set_prices(prices)
     lpv=pd.read_csv("pv_prod_scenarios.csv",delimiter=";")
     player.set_scenario_data(lpv)
     result=player.compute_all_load()
-    print("niveau de batterie =", player.battery)
+    print("charge =")
     print(result)
+    print("batterie", player.battery)
     print("bill = ",player.bill)
-
-
+    plt.subplot(121)
+    plt.plot([i for i in range(48)],result)
+    plt.subplot(122)
+    plt.plot([i for i in range(48)],nivbat)
+    plt.plot([i for i in range(48)],[30 for i in range(48)])
 
