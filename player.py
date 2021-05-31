@@ -30,22 +30,27 @@ class Player:
         self.pimax = 10
         self.C = 30
         self.horizon = 48
-        self.prod = genfromtxt("pv_prod_scenarios.csv", delimiter = ";", usecols=3)
-        self.prod2 = np.array(df["pv_prod (W/m2)"])
+        df = pd.read_csv('pv_prod_scenarios.csv', sep=';')
+        df = df[(df['region'] == self.region) & (df['day'] == self.day)]
+        self.prod = df[['pv_prod (W/m2)']]
+        self.l_pv = np.array(self.prod)
+        self.l_pv = (-1)*self.size*self.l_pv/1000
+        self.l_pv = np.repeat(self.l_pv,2)
+        #self.prod = genfromtxt("pv_prod_scenarios.csv", delimiter = ";", usecols=3)
+        #self.prod2 = np.array(df["pv_prod (W/m2)"])
         self.data = np.zeros(self.horizon)
         self.bill = 0
 
     def set_scenario(self, scenario_data):
-        predata = scenario_data
-        futurdata = np.zeros(self.horizon)
-        n = len(scenario_data)
-        if  n != self.horizon:
-            for i in range(self.horizon):
-                futurdata[i] = predata[int(i*n/self.horizon)]
-                self.data = futurdata
-            else:
-                self.data = predata
-        print("data = ",self.data)
+        df2 = scenario_data
+        df2 = df2[(df2['region'] == self.region) & (df2['day'] == self.day)]
+        self.prod = df2[['pv_prod (W/m2)']]
+        self.l_pv = np.array(self.prod)
+        self.l_pv = (-1)*self.size*self.l_pv/1000
+        self.l_pv = np.repeat(self.l_pv,2)
+        #self.prod = genfromtxt("pv_prod_scenarios.csv", delimiter = ";", usecols=3)
+        #self.prod2 = np.array(df["pv_prod (W/m2)"])
+        self.data = np.zeros(self.horizon)
             
     def set_scenario_data(self,lpv):
         self.data=np.zeros(self.horizon)
@@ -130,4 +135,6 @@ def run():
     plt.subplot(122)
     plt.plot([i for i in range(48)],nivbat)
     plt.plot([i for i in range(48)],[30 for i in range(48)])
+
+
 
